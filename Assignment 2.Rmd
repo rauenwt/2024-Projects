@@ -1,0 +1,351 @@
+---
+title: "LDAPS Regression Analysis"
+author: "Will Rauen"
+date: "2024-02-21"
+output: pdf_document
+---
+
+# Setup 
+
+For this Data Analysis we will be using the tidyverse and ggplot2 packages in R.
+
+```{r}
+require(tidyverse)
+require(ggplot2)
+```
+
+# Data
+
+```{r}
+climate_data <- read.csv("/Users/williamrauen/Desktop/DS 3100/Assignments/Assignment 2/Data/Bias_correction_ucl.csv")
+
+dim(climate_data)
+```
+
+The data used in this dataset comes from the UC Irvine Machine Learning Repository and can be accessed with the link: 
+
+https://archive.ics.uci.edu/dataset/514/bias+correction+of+numerical+prediction+model+temperature+forecast
+
+This specific dataset takes data from 25 weather stations in the country of South Korea each of which recording fourteen numerical weather predictions for future forecast data. The dataset containss from the years 2013 - 2016 and only recorded data points during the summer. The input data is largely comprised of the LDAPS model's next-day forecast data, which is the current model operated by the Korea Meteorological Administration over Seoul, South Korea. Thus, the data is organized by independent variables columns such as the different LDAPS predictors, daily maximum and minimum temperatures, and geographic auxiliary variables, and two dependent columns being the next days maximum and minimum temperatures (Celsius). 
+
+
+# Research Question
+
+In this assignment, I aim to see if solely the previous day's maximum and minimum temperature is the best predictor of the next day's maximum and minimum temperature. If not, does Korea's LDAPS model predict the next day's maximum and minimum temperatures more accurately? 
+
+# Variables of Interest
+
+Our two response variables in the dataset are labeled with the column names "Next_Tmax" and "Next_Tmin" representing the next day's maximum and minimum temepratures respectively. Important independent variables of interest are labeled as "Present_Tmax" and "Present_Tmin" which are the present day's maximum and minimum temperatures, and "LDAPS_Tmax_lapse" and "LDAPS_Tmin_lapse" which are the LDAPS model forecast of next-day air temperature. Perhaps other variables concerning LDAPS prediction of next day humidity, cloud coverage, wind, and daily solar radiation could be of interest. 
+
+# Data Wrangling
+
+The first thing to check for in the dataset is missing data. Upon inspection, there were found to be some missing values of data across various columns, so I decided to omit those rows of data entirely. This means my new cleaned data has 174 less rows than before.
+ 
+```{r}
+climate_data %>% #Count missingness in data
+  count(NaN)
+
+climate_data_new <- climate_data %>% #Creates new datafram with completed rows
+  drop_na()
+
+dim(climate_data_new) #dimensions of new data set
+```
+
+The next step is to check if the data can be modeled linearly by making a simple graph of our parameters of interest.
+
+```{r}
+climate_data_new %>%
+  ggplot(aes(x = Present_Tmax, y = Next_Tmax)) + 
+  geom_point(alpha = 0.2) +
+  labs(title = "Current Day's vs. Next Day's Temperature",
+       x = "Current Day's Temperature (Celsius)",
+       y = "Next Day's Temperature (Celsius)") +
+  theme_classic()
+```
+
+Since the data visualization shows no direct abnormalities that would indicate another model should be used, we can safely proceed with using a linear regression model for this data set. 
+
+Lastly, since we have a large population with over 7500 rows of data, it might benefit us to subset a sample of the data. Since the population is relatively large (> 1000 samples) we will used the general rule of subsetting around 10% of the data. In this case I've chosen to the subset the data into a sample of 800. 
+
+```{r}
+set.seed(123) #seed for randomness
+# Obtain indices for 100 players at random
+sample_climate <- sample(1:nrow(climate_data_new), 800)
+# Obtain sub-sample
+climate_sample <- climate_data_new[sample_climate,]
+```
+
+# Data Analysis
+
+## Investigation 1
+
+The first investigation will see if daily maximum/minimum temperature is a good indicator of the next day's maximum/minimum temperature. 
+
+```{r}
+lm_max1 <- lm(Next_Tmax ~ Present_Tmax, data = climate_sample)
+
+
+lm_min1 <- lm(Next_Tmin ~ Present_Tmin, data = climate_sample)
+
+# Graph for Predicting Max Temperature
+climate_sample %>%
+  ggplot(aes(x = Present_Tmax, y = Next_Tmax)) + 
+  geom_point(alpha = 0.2, color = "orange") +
+  geom_smooth(method = lm) +
+  geom_text(aes(x = max(Present_Tmax), y = min(Next_Tmax),
+                label = paste("R² =", round(summary(lm_max1)$r.squared, 3))),
+            hjust = 1, vjust = 0, color = "blue", size = 5) +
+  labs(title = "Current Day's vs. Next Day's Maximum Temperature",
+       x = "Current Day's Maximum Temperature (Celsius)",
+       y = "Next Day's Maximum Temperature (Celsius)") +
+  theme_classic()
+
+#Graph for Predicting Min Temperature
+climate_sample %>%
+  ggplot(aes(x = Present_Tmin, y = Next_Tmin)) + 
+  geom_point(alpha = 0.2, color = "orange") +
+  geom_smooth(method = lm) +
+  geom_text(aes(x = max(Present_Tmin), y = min(Next_Tmin),
+                label = paste("R² =", round(summary(lm_min1)$r.squared, 3))),
+            hjust = 1, vjust = 0, color = "blue", size = 5) +
+  labs(title = "Current Day's vs. Next Day's Minimum Temperature",
+       x = "Current Day's Minimum Temperature (Celsius)",
+       y = "Next Day's Minimum Temperature (Celsius)") +
+  theme_classic()
+```
+Interestingly, the graphs reveal that there is a pretty significant difference in the ability for current temperature to predict the next day's temperature. While predicting the next day's maximum temperature R-squared value is 0.38, the corresponding R-squared value for minimum temperature prediction is 0.68. This would imply that there is a much stronger linear relationship for minimum temperature prediction compared to maximum temperature prediction.
+
+### Residual Analysis and Homoscedasticity
+
+
+```{r}
+# Looking at Homoscedasticity of Maximum Temperature
+
+summary(lm_max1)
+
+shapiro.test(residuals(lm_max1)) #Shapiro test for maximum temp. regression
+
+## Residual vs Fitted Plot for maximum temp regression
+plot(lm_max1, which = 1,
+     sub = "Maximum Temperature Regression",
+     cex.sub = 0.75, 
+     adj = 1) 
+
+## QQ Plot for maximum temp. regression
+plot(lm_max1, which = 2,
+     sub = "Maximum Temperature Regression",
+     cex.sub = 0.75, 
+     adj = 1) 
+```
+The regression function gives the equation: Next_Tmax = 10.48 + 0.66(Present_Tmax)
+which can be interpreted as for every 1 unit (Celsius) increase in the current day's maximum temperature, the next day's maximum temperature increases by 0.66 degrees Celsius. The intercept can be interpreted as when the current day's temperature is 0, the next day's temperature is 10.48 degrees Celsius. Seeing this intercept interpretation conveys a good reason why the relationship might have such a low R-squared value. 
+
+```{r}
+# Looking at Homoscedasticity of Minimum Temperature
+summary(lm_min1)
+
+shapiro.test(residuals(lm_min1)) #Shapiro test for minimum temp. regression
+
+#Residual vs Fitted Plot for minimum temp. regression
+plot(lm_min1, which = 1, 
+     sub = "Minimum Temperature Regression",
+     cex.sub = 0.75, 
+     adj = 1) 
+
+#QQ Plot for minimum temp. regression
+plot(lm_min1, which = 2,
+     sub = "Minimum Temperature Regression",
+     cex.sub = 0.75, 
+     adj = 1) 
+
+```
+The regression function for minimum temeprature gives the equation: Next_Tmin = 3.44 + 0.84(Present_Tmin) which can be interpreted as for every 1 unit (Celsius) increase in the current day's minimum temperature, the next day's minimum temperature increases by 0.84 degrees Celsius. The intercept can be interpreted as when the current day's temperature is 0, the next day's temperature is 3.44 degrees Celsius. Seeing this intercept be closer to zero in the interpretation illustrates why this model might be stronger (higher R-squared value) than its maximum temperature counterpart as the intercept interpretation makes more sense.  
+
+The residual values for both the maximum and minimum temperature prediction appear to show that a linear model fits the data as the QQ Plots for each show predictions that are close to the line and the Residual vs Fitted plots show seemingly random predictions. However, for the residual vs fitted plot for our maximum temperature prediction, those residuals appear to be spread out more randomly. For both plots, we also find that the Shapiro-Wilk test for normality is not rejected implying that our residuals do not follow a normal distribution. It's important to know though that this test is highly sensitive, and considering the sample size is greater than 50 (the appropriate amount for the test), we should take the impact of this test with a grain of salt for our discussion.
+
+Thus, I think there is sufficient evidence to state that there exists a linear relationship between the current day's temperature in predicting the next day's temperature especially in the case of predicting minimum temperatures. Although the Shapiro-Wilk test might have been violated, other measures would indicate homoscedasticity of the data. 
+
+## Investigation 2
+
+The second investigation will check to see if Korea's LDAPS model does a better job predicting the next day's maximum and minimum air temperature compared to our previous model. First we will graph the LDAPS model to see if there is linear relationship with predicted temperature.
+
+```{r}
+
+#Regression fits for our models
+lm_max2 <- lm(Next_Tmax ~ LDAPS_Tmax_lapse, data = climate_sample)
+
+
+lm_min2 <- lm(Next_Tmin ~ LDAPS_Tmin_lapse, data = climate_sample)
+
+# Graph for Predicted temperature high's using LDAPS
+climate_sample %>%
+  ggplot(aes(x = LDAPS_Tmax_lapse, y = Next_Tmax)) + 
+  geom_point(alpha = 0.2, color = "orange") +
+  geom_smooth(method = lm) +
+  geom_text(aes(x = max(LDAPS_Tmax_lapse), y = min(Next_Tmax),
+                label = paste("R² =", round(summary(lm_max2)$r.squared, 3))),
+            hjust = 1, vjust = 0, color = "blue", size = 5) +
+  labs(title = "LDAPS Predicted Max Temperature vs. Next Day's Max Temperature",
+       x = "LDAPS Predicted Maximum Temperature (Celsius)",
+       y = "Next Day's Maximum Temperature (Celsius)") +
+  theme_classic()
+
+climate_sample %>%
+  ggplot(aes(x = LDAPS_Tmin_lapse, y = Next_Tmin)) + 
+  geom_point(alpha = 0.2, color = "orange") +
+  geom_smooth(method = lm) +
+  geom_text(aes(x = max(LDAPS_Tmin_lapse), y = min(Next_Tmin),
+                label = paste("R² =", round(summary(lm_min2)$r.squared, 3))),
+            hjust = 1, vjust = 0, color = "blue", size = 5) +
+  labs(title = "LDAPS Predicted Min Temperature vs. Next Day's Min Temperature",
+       x = "LDAPS Predicted Minimum Temperature (Celsius)",
+       y = "Next Day's Minimum Temperature (Celsius)") +
+  theme_classic()
+
+
+```
+
+There appears to be a very strong linear relationship with the LDAPS future forecast model predicting the next day's temperature. It is stronger than our previous investigation as there is a R-squared value of 0.686 for the LDAPS prediction of the next day high and a R-squared value of 0.804 for the LDAPS prediction of the next day low. This indicates that more variability in the next day's temperature can be explained by the regression prediction of the LDAPS model. 
+
+### Residual Analysis and Homoscedasticity (Investigation 2)
+
+```{r}
+
+# Looking at Homoscedasticity of LDAPS Maximum Temperature
+
+summary(lm_max2)
+
+shapiro.test(residuals(lm_max2)) #Shapiro test for LDAPS maximum temp. regression
+
+## Residual vs Fitted Plot for LDAPS max temp. regression
+plot(lm_max2, which = 1,
+     sub = "Maximum LDAPS Temperature Regression",
+     cex.sub = 0.75, 
+     adj = 1) 
+
+## QQ Plot for LDAPS maximum temp. regression
+plot(lm_max2, which = 2,
+     sub = "Maximum LDAPS Temperature Regression",
+     cex.sub = 0.75, 
+     adj = 1) 
+```
+
+The regression function gives the equation: Next_Tmax = 3.88 + 0.89(LDAPS_Tmax_Lapse) which can be interpreted as for every 1 unit (Celsius) increase in the LDAPS predicted maximum temperature, the next day's maximum temperature increases by 0.89 degrees Celsius. The intercept can be interpreted as when the LDAPS predicted temperature is 0, the next day's temperature is 3.88 degrees Celsius. This interpretation compared to the maximum temperature prediction in investigation one makes more sense and in turn, explains why its R-squared value is higher. 
+```{r}
+# Looking at Homoscedasticity of LDAPS Minimum Temperature
+summary(lm_min2)
+
+shapiro.test(residuals(lm_min2)) #Shapiro test for LDAPS minimum temp. regression
+
+#Residual vs Fitted Plot for LDAPS minimum temp. regression
+plot(lm_min2, which = 1, 
+     sub = "LDAPS Minimum Temperature Regression",
+     cex.sub = 0.75, 
+     adj = 1) 
+
+#QQ Plot for minimum temp. LDAPS regression
+plot(lm_min2, which = 2,
+     sub = "LDAPS Minimum Temperature Regression",
+     cex.sub = 0.75, 
+     adj = 1) 
+
+```
+The regression function gives the equation: Next_Tmax = 0.36 + 0.96(LDAPS_Tmin_Lapse) which can be interpreted as for every 1 unit (Celsius) increase in the LDAPS predicted maximum temperature, the next day's maximum temperature increases by 0.96 degrees Celsius. The intercept can be interpreted as when the LDAPS predicted temperature is 0, the next day's temperature is 0.36 degrees Celsius. This model has the highest R-squared value across all investigations so this LDAPS prediction model might have the strongest support for having a linear relationship.  
+
+Once again, there does appear to be evidence that a linear model is the correct model for fitting the relationships between the LDAPS model of prediction. The correlating QQ plots show very strong evidence for the LDAPS prediction of next day temperature except at each of the graph's ends. It is also interesting to note that the residual vs fitted plot for minimum temperature prediction seems slightly more randomly distributed compared to its maximum temperature prediction counter part. One might argue that the opposite is true for our investigation one. Lastly, the Shapiro-Wilk test for normality once again was rejected in this investigation, but similar to before, this was likely due to it being a high sensitivity test and the sample containing more than 50 data points. Overall, there is strong evidence that a linear model is the correct form for this function regression considering the high R-squared of the LDAPS model, but this conclusion may be limited by the fact that residual analysis for homoscedasticity showed weaker results than in the previous investigation.
+
+# Bias 
+
+Another important attribute of the LDAPS model to consider is whether or not the model might be bias. An example of this would be if the LDAPS model consistently overestimated the next day's high temperature high. A simple bias estimator will be used to see if there is any detectable bias in the sample.
+
+```{r}
+# Stats regarding average temperatures and average predicted temperatures
+
+mean_high = mean(climate_sample$Next_Tmax)
+mean_low =  mean(climate_sample$Next_Tmin)
+mean_LDAPS_high = mean(climate_sample$LDAPS_Tmax_lapse)
+mean_LDAPS_low = mean(climate_sample$LDAPS_Tmin_lapse)
+
+LDAPS_bias_max2 = mean_LDAPS_high - mean_high
+LDAPS_bias_min2 = mean_LDAPS_low - mean_low
+
+
+#Graph of LDAPS Bias for Maximum Temperatures
+climate_sample %>%
+  mutate(LDAPS_max_bias = ifelse(LDAPS_Tmax_lapse > Next_Tmax, 
+                                 "Over Estimating", 
+                                 "Under Estimating")) %>%
+  ggplot(aes(x = LDAPS_max_bias, fill = LDAPS_max_bias)) +
+  geom_bar(stat = 'count') + 
+  annotate("text", x = 2, y = 500 , 
+           label = round(LDAPS_bias_max2, digits = 2), 
+           vjust = 1, 
+           hjust = 5) +
+  annotate("text", x = 2, y = 550 , 
+           label = "Mean Difference (Celsius):", 
+           vjust = 1, 
+           hjust = 1.5) +
+  labs(title = "Bias of LDAPS Model in Estimating Next Day Max. Temperature",
+       x = "LDAPS Model Bias",
+       y = "Frequency",
+       fill = NULL) +
+  theme_bw()
+
+#Graph of LDAPS Bias for Minimum Temperatures
+climate_sample %>%
+  mutate(LDAPS_min_bias = ifelse(LDAPS_Tmin_lapse > Next_Tmin, 
+                                 "Over Estimating", 
+                                 "Under Estimating")) %>%
+  ggplot(aes(x = LDAPS_min_bias, fill = LDAPS_min_bias)) +
+  geom_bar(stat = 'count') +
+  annotate("text", x = 3, y = 500 , 
+           label = round(LDAPS_bias_min2, digits = 2), 
+           vjust = 1, 
+           hjust = 4) +
+  annotate("text", x = 3, y = 550 , 
+           label = "Mean Difference (Celsius):", 
+           vjust = 1, 
+           hjust = 1.2) +
+  labs(title = "Bias of LDAPS Model in Estimating Next Day Min. Temperature",
+       x = "LDAPS Model Bias",
+       y = "Frequency",
+       fill = NULL) +
+  theme_bw()
+
+```
+The graphs reveal that there is detectable bias in the LDAPS model for predicting the next day's temperature. Interestingly, when predicting the next day maximum temperature, the LDAPS model often underestimates the amount by a mean of 0.55 degrees Celsius, and for predicting the next day minimum temperature, the LDAPS model often overestimates the amount by 0.55 degrees Celsius. Thus, it appears that the LDAPS model for forecasting weather does have some limitations to it. To check this idea further, we can use a t-test with an alpha level of 0.05 to determine significance of bias as we are using sample data with an unknown population variance. 
+
+```{r}
+#T-test to see if LDAPS model predicted temperatures 
+#are equal to true mean of temperatures 
+
+t.test(x = climate_sample$LDAPS_Tmax_lapse , y = NULL,
+       alternative = "two.sided",
+       mu = mean_high, paired = FALSE, var.equal = FALSE,
+       conf.level = 0.95)
+
+t.test(x = climate_sample$LDAPS_Tmin_lapse , y = NULL,
+       alternative = "two.sided",
+       mu = mean_low, paired = FALSE, var.equal = FALSE,
+       conf.level = 0.95)
+
+```
+
+In both t-tests, the null hypothesis states that the hypothesized mean (LDAPS model) is equal to the true mean (actual temperature). However, after running a two-sided t-test, the null hypothesis is rejected at the 0.05 alpha level of significance, leading to the conclusion that the predicted mean of the temperature using the LDAPS model is not equal to the true mean of next day temperature. Thus, there is indication of bias in the LDAPS prediction model.
+
+# Discussion
+
+In our investigation, we aimed to determine if Korea's LDAPS Model for forecasting maximum and minimum temperature did a better job at predicting the next day's weather compared to solely using temperature as a predictor. The first investigation looked only at the day's temperature as the parameter for predicting the next day's temperature. In that investigation, we found that current temperature did a better job of predicting the minimum temperature than the maximum temperature with R-squared values of 0.676 and 0.379 respectively. While these values indicated some strength in a linear relationship between the two variables, residual analysis aimed to see if there were any blatant dicrepancies in the model. After plotting residuals, using the Shapiro-Wilk test, and using a QQ-plot, I concluded that it was possible for current temperature to have a mediocre linear relationship in predicting the next day's temperatures. 
+
+The second investigation looked at answering our research question of weather or not the LDAPS model is a better predictor of temperature. Using the same methods in the previous investigation, we found that there was a stronger relationship between using the LDAPS model prediction for the weather and the actual next day weather. The linear regression found that similar to investigation 1, predicting minimum temperature was more accurate than predicting maximum temperature as the R-squared values for this analysis were 0.804 and 0.686. However, residual analysis for homoscedasticity showed weaker results in this investigation which may imply that a linear model using the LDAPS model as a predictor for weather might not be entirely the correct form. Nonetheless, it is still possible that a linear function is the correct form. 
+
+The last thing analyzed in this investigation was to see if the LDAPS model had any bias in its prediction. An initial data visualization showed a general trend in overestimating low temperatures and underestimating high temperatures. Using a two-sided t-test that compared the means of the LDAPS forecast and the true forecast for weather found that the null hypothesis could be rejected at the 5% alpha level of significance. Thus, there is strong evidence that the LDAPS model is biased; however, correcting that bias might not be through a simple linear transformation.
+
+A future investigation might try to use other LDAPS measures in the data set to see if there are any significant predictors that could account for this bias. However, not having access to the algorithm behind the LDAPS model means future investigations would have to be careful in dealing with collinearity and confounding variables when working with these predictors. 
+
+# References
+
+The original data set was taken from the UC Irvine Machine Learning Repository:
+
+https://archive.ics.uci.edu/dataset/514/bias+correction+of+numerical+prediction+model+temperature+forecast
+
